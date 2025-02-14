@@ -43,6 +43,10 @@ public class SmppSessionWrapper extends SimpleChannelInboundHandler<Pdu> {
         this.listener = listener;
     }
 
+    public SmppSessionChannelListener getListener() {
+        return listener;
+    }
+
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, Pdu msg) throws Exception {
         this.listener.firePduReceived(msg);

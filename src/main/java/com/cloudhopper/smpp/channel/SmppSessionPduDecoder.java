@@ -20,9 +20,13 @@ package com.cloudhopper.smpp.channel;
  * #L%
  */
 
+import com.cloudhopper.smpp.impl.DefaultSmppSession;
+import com.cloudhopper.smpp.impl.SmppSessionChannelListener;
 import com.cloudhopper.smpp.pdu.Pdu;
 import com.cloudhopper.smpp.transcoder.PduTranscoder;
+import com.cloudhopper.smpp.type.UnrecoverablePduException;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import org.slf4j.Logger;
@@ -54,7 +58,21 @@ public class SmppSessionPduDecoder extends ByteToMessageDecoder {
         Pdu pdu = transcoder.decode(in);
         logger.debug("Decoded PDU: {}", pdu);
 
-        if (pdu != null)
+        ChannelHandler sessionWrapperChannelHandler = ctx.pipeline().get(SmppChannelConstants.PIPELINE_SESSION_WRAPPER_NAME);
+        boolean bound = false;
+        if (sessionWrapperChannelHandler instanceof SmppSessionWrapper) {
+            SmppSessionChannelListener listener = ((SmppSessionWrapper) sessionWrapperChannelHandler).getListener();
+            if (listener instanceof DefaultSmppSession) {
+                bound = ((DefaultSmppSession) listener).isBound();
+            }
+        }
+
+        if (pdu != null) {
             out.add(pdu);
+        } else {
+            if (!bound) {
+                throw new UnrecoverablePduException("Invalid data");
+            }
+        }
     }
 }

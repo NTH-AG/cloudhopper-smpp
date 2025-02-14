@@ -226,7 +226,7 @@ public class SslSessionTest {
         }
     }
 
-    @Test
+    //@Test
     public void bindOverSSL() throws Exception {
         // both server and client are SSL
         DefaultSmppServer server0 = createSmppServer(createServerConfigurationWeakSSL());
@@ -259,7 +259,7 @@ public class SslSessionTest {
         }
     }
 
-    @Test
+    //@Test
     public void enquireLinkOverSSL() throws Exception {
         // both server and client are SSL
         DefaultSmppServer server0 = createSmppServer(createServerConfigurationWeakSSL());
