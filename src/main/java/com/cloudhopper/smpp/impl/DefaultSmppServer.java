@@ -48,9 +48,12 @@ import org.slf4j.LoggerFactory;
 import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Timer;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -77,6 +80,7 @@ public class DefaultSmppServer implements SmppServer, DefaultSmppServerMXBean {
     // shared instance for monitor executors
     private final ScheduledExecutorService monitorExecutor;
     private DefaultSmppServerCounters counters;
+    private final Map<String, AtomicInteger> bindErrorCounters;
     
     /**
      * Creates a new default SmppServer. Window monitoring and automatic
@@ -152,6 +156,7 @@ public class DefaultSmppServer implements SmppServer, DefaultSmppServerMXBean {
         this.sessionIdSequence = new AtomicLong(0);
         this.monitorExecutor = monitorExecutor;
         this.counters = new DefaultSmppServerCounters();
+        this.bindErrorCounters = new HashMap<>();
         if (configuration.isJmxEnabled()) {
             registerMBean();
         }
@@ -318,6 +323,12 @@ public class DefaultSmppServer implements SmppServer, DefaultSmppServerMXBean {
                 // downgrade to 3.3
                 return SmppConstants.VERSION_3_3;
             }
+        }
+    }
+
+    protected int incrementBindErrors(SmppSessionConfiguration sessionConfiguration, SmppProcessingException e) {
+        synchronized (bindErrorCounters) {
+            return bindErrorCounters.computeIfAbsent(sessionConfiguration.getSystemId() + "@" + sessionConfiguration.getHost() + "#" + e.getErrorCode(), k -> new AtomicInteger()).incrementAndGet();
         }
     }
 

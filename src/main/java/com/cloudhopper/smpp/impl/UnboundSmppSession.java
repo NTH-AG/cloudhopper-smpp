@@ -85,7 +85,12 @@ public class UnboundSmppSession implements SmppSessionChannelListener {
                 // delegate the bind request upstream to server handler
                 this.server.bindRequested(sessionId, sessionConfiguration, bindRequest);
             } catch (SmppProcessingException e) {
-                logger.warn("Bind request rejected or failed for connection [{}] with error [{}]", channelName, e.getMessage());
+                int counter = this.server.incrementBindErrors(sessionConfiguration, e);
+                if (counter > 1) {
+                    logger.info("Bind request rejected or failed for connection {}@{} ({}) {} times since start with error [{}]", sessionConfiguration.getSystemId(), sessionConfiguration.getHost(), channelName, counter, e.getMessage());
+                } else {
+                    logger.warn("Bind request rejected or failed for connection {}@{} ({}) with error [{}]", sessionConfiguration.getSystemId(), sessionConfiguration.getHost(), channelName, e.getMessage());
+                }
                 // create a failed bind response and send back to connection
                 BaseBindResp bindResponse = server.createBindResponse(bindRequest, e.getErrorCode());
                 this.sendResponsePdu(bindResponse);
