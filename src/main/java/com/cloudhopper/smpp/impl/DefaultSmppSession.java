@@ -39,6 +39,8 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.slf4j.MDC.MDCCloseable;
 
 import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
@@ -577,75 +579,77 @@ public class DefaultSmppSession implements SmppServerSession, SmppSessionChannel
     @SuppressWarnings("unchecked")
     @Override
     public void firePduReceived(Pdu pdu) {
-        if (configuration.getLoggingOptions().isLogPduEnabled()) {
-            logger.info("received PDU: {}", pdu);
-        }
-
-        if(this.sessionHandler instanceof SmppSessionListener) {
-            if(!((SmppSessionListener)this.sessionHandler).firePduReceived(pdu)){
-                logger.info("recieved PDU discarded: {}", pdu);
-                return;
+        try (MDCCloseable ignored = MDC.putCloseable("username", " <%s>".formatted(configuration.getSystemId()))) {
+            if (configuration.getLoggingOptions().isLogPduEnabled()) {
+                logger.info("received PDU: {}", pdu);
             }
-        }
 
-        if (pdu instanceof PduRequest) {
-            // process this request and allow the handler to return a result
-            PduRequest requestPdu = (PduRequest)pdu;
-            
-            this.countReceiveRequestPdu(requestPdu);
-            
-            long startTime = System.currentTimeMillis();
-            PduResponse responsePdu = this.sessionHandler.firePduRequestReceived(requestPdu);
-            
-            // if the handler returned a non-null object, then we need to send it back on the channel
-            if (responsePdu != null) {
-                try {
-                    long responseTime = System.currentTimeMillis() - startTime;
-                    this.countSendResponsePdu(responsePdu, responseTime, responseTime);
-                    
-                    this.sendResponsePdu(responsePdu);
-                } catch (Exception e) {
-                    logger.error("Unable to cleanly return response PDU: {}", e);
+            if(this.sessionHandler instanceof SmppSessionListener) {
+                if(!((SmppSessionListener)this.sessionHandler).firePduReceived(pdu)){
+                    logger.info("recieved PDU discarded: {}", pdu);
+                    return;
                 }
             }
-        } else {
-            // this is a response -- we need to check if its "expected" or "unexpected"
-            PduResponse responsePdu = (PduResponse)pdu;
-            int receivedPduSeqNum = pdu.getSequenceNumber();
-            
-            try {
-                // see if a correlating request exists in the window
-                WindowFuture<Integer,PduRequest,PduResponse> future = this.sendWindow.complete(receivedPduSeqNum, responsePdu);
-                if (future != null) {
-                    logger.trace("Found a future in the window for seqNum [{}]", receivedPduSeqNum);
-                    this.countReceiveResponsePdu(responsePdu, future.getOfferToAcceptTime(), future.getAcceptToDoneTime(), (future.getAcceptToDoneTime() / future.getWindowSize()));
-                    
-                    // if this isn't null, we found a match to a request
-                    int callerStateHint = future.getCallerStateHint();
-                    //logger.trace("IsCallerWaiting? " + future.isCallerWaiting() + " callerStateHint=" + callerStateHint);
-                    if (callerStateHint == WindowFuture.CALLER_WAITING) {
-                        logger.trace("Caller waiting for request: {}", future.getRequest()); 
-                        // if a caller is waiting, nothing extra needs done as calling thread will handle the response
-                        return;
-                    } else if (callerStateHint == WindowFuture.CALLER_NOT_WAITING) {
-                        logger.trace("Caller not waiting for request: {}", future.getRequest()); 
-                        // this was an "expected" response - wrap it into an async response
-                        this.sessionHandler.fireExpectedPduResponseReceived(new DefaultPduAsyncResponse(future));
-                        return;
+
+            if (pdu instanceof PduRequest) {
+                // process this request and allow the handler to return a result
+                PduRequest requestPdu = (PduRequest)pdu;
+
+                this.countReceiveRequestPdu(requestPdu);
+
+                long startTime = System.currentTimeMillis();
+                PduResponse responsePdu = this.sessionHandler.firePduRequestReceived(requestPdu);
+
+                // if the handler returned a non-null object, then we need to send it back on the channel
+                if (responsePdu != null) {
+                    try {
+                        long responseTime = System.currentTimeMillis() - startTime;
+                        this.countSendResponsePdu(responsePdu, responseTime, responseTime);
+
+                        this.sendResponsePdu(responsePdu);
+                    } catch (Exception e) {
+                        logger.error("Unable to cleanly return response PDU: {}", e);
+                    }
+                }
+            } else {
+                // this is a response -- we need to check if its "expected" or "unexpected"
+                PduResponse responsePdu = (PduResponse)pdu;
+                int receivedPduSeqNum = pdu.getSequenceNumber();
+
+                try {
+                    // see if a correlating request exists in the window
+                    WindowFuture<Integer,PduRequest,PduResponse> future = this.sendWindow.complete(receivedPduSeqNum, responsePdu);
+                    if (future != null) {
+                        logger.trace("Found a future in the window for seqNum [{}]", receivedPduSeqNum);
+                        this.countReceiveResponsePdu(responsePdu, future.getOfferToAcceptTime(), future.getAcceptToDoneTime(), (future.getAcceptToDoneTime() / future.getWindowSize()));
+
+                        // if this isn't null, we found a match to a request
+                        int callerStateHint = future.getCallerStateHint();
+                        //logger.trace("IsCallerWaiting? " + future.isCallerWaiting() + " callerStateHint=" + callerStateHint);
+                        if (callerStateHint == WindowFuture.CALLER_WAITING) {
+                            logger.trace("Caller waiting for request: {}", future.getRequest());
+                            // if a caller is waiting, nothing extra needs done as calling thread will handle the response
+                            return;
+                        } else if (callerStateHint == WindowFuture.CALLER_NOT_WAITING) {
+                            logger.trace("Caller not waiting for request: {}", future.getRequest());
+                            // this was an "expected" response - wrap it into an async response
+                            this.sessionHandler.fireExpectedPduResponseReceived(new DefaultPduAsyncResponse(future));
+                            return;
+                        } else {
+                            logger.trace("Caller timed out waiting for request: {}", future.getRequest());
+                            // we send the request, but caller gave up on it awhile ago
+                            this.sessionHandler.fireUnexpectedPduResponseReceived(responsePdu);
+                        }
                     } else {
-                        logger.trace("Caller timed out waiting for request: {}", future.getRequest());
-                        // we send the request, but caller gave up on it awhile ago
+                        this.countReceiveResponsePdu(responsePdu, 0, 0, 0);
+
+                        // original request either expired OR was completely unexpected
                         this.sessionHandler.fireUnexpectedPduResponseReceived(responsePdu);
                     }
-                } else {
-                    this.countReceiveResponsePdu(responsePdu, 0, 0, 0);
-                    
-                    // original request either expired OR was completely unexpected
-                    this.sessionHandler.fireUnexpectedPduResponseReceived(responsePdu);
+                } catch (InterruptedException e) {
+                    logger.warn("Interrupted while attempting to process response PDU and match it to a request via requesWindow: ", e);
+                    // do nothing, continue processing
                 }
-            } catch (InterruptedException e) {
-                logger.warn("Interrupted while attempting to process response PDU and match it to a request via requesWindow: ", e);
-                // do nothing, continue processing
             }
         }
     }
