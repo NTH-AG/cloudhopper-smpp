@@ -24,7 +24,7 @@
     </parent>
 
     <properties>
-        <java.version>17</java.version>
+        <java.version>11</java.version> <!-- bulk gw is at java 11 -->
         
         <main.java.package>com.cloudhopper.smpp</main.java.package>
         <ch-commons-util.version>6.0.4</ch-commons-util.version>

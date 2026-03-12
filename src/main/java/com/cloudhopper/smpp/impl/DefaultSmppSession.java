@@ -579,7 +579,7 @@ public class DefaultSmppSession implements SmppServerSession, SmppSessionChannel
     @SuppressWarnings("unchecked")
     @Override
     public void firePduReceived(Pdu pdu) {
-        try (MDCCloseable ignored = MDC.putCloseable("username", " <%s>".formatted(configuration.getSystemId()))) {
+        try (MDCCloseable ignored = MDC.putCloseable("username", String.format(" <%s>", configuration.getSystemId()))) {
             if (configuration.getLoggingOptions().isLogPduEnabled()) {
                 logger.info("received PDU: {}", pdu);
             }
